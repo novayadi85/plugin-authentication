@@ -1,5 +1,23 @@
+/* eslint-disable require-jsdoc */
+/* eslint-disable no-console */
 import Logger from "@reactioncommerce/logger";
-import expandAuthToken from "./expandAuthToken.js";
+import AWS from "aws-sdk";
+import config from "../config.js";
+import cognitoAuthToken from "./cognitoAuthToken.js";
+
+const {
+  AWS_POOL_IDENTITY_POOL,
+  AWS_REGION
+} = config;
+
+AWS.config.update({
+  region: AWS_REGION
+});
+
+AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+  IdentityPoolId: `${AWS_POOL_IDENTITY_POOL}`,
+  region: AWS_REGION
+});
 
 /**
  * Given an Authorization Bearer token and the current context, returns the user document
@@ -16,34 +34,77 @@ import expandAuthToken from "./expandAuthToken.js";
  * @param {Object} context An object with request-specific state
  * @returns {Object} The user associated with the token
  */
-async function getUserFromAuthToken(loginToken, context) {
+
+async function getCurrentUser(token) {
+  const cognitoidentityserviceprovider = new AWS.CognitoIdentityServiceProvider();
+  const params = {
+    AccessToken: token
+  };
+
+  return cognitoidentityserviceprovider.getUser(params).promise();
+}
+
+async function getUserFromAuthToken(loginToken) {
   const token = loginToken.replace(/bearer\s/gi, "");
 
-  const tokenObj = await expandAuthToken(token);
+  const tokenObj = await cognitoAuthToken(token);
+
   if (!tokenObj) {
     Logger.debug("No token object");
     throw new Error("No token object");
   }
 
-  const { active, sub: _id, token_type: tokenType } = tokenObj;
+  const { ok: active, token_use: tokenType } = tokenObj;
 
   if (!active) {
     Logger.debug("Bearer token is expired");
     throw new Error("Bearer token is expired");
   }
 
-  if (tokenType !== "access_token") {
+  if (tokenType !== "access") {
     Logger.error("Bearer token is not an access token");
     throw new Error("Bearer token is not an access token");
   }
 
-  const currentUser = await context.collections.users.findOne({ _id });
-  if (!currentUser) {
+  // const currentUser = await context.collections.users.findOne({ _id });
+
+  const activeUser = await getCurrentUser(token);
+
+  if (!activeUser) {
     Logger.error("Bearer token specifies a user ID that does not exist");
     throw new Error("Bearer token specifies a user ID that does not exist");
   }
 
-  return currentUser;
+
+  const { UserAttributes } = activeUser;
+  let user = {};
+  UserAttributes.map((item) => {
+    const { Name, Value } = item;
+    user = {
+      ...user,
+      [Name]: Value
+    };
+    return user;
+  });
+
+  user = {
+    ...user,
+    emails: [
+      {
+        address: user.email,
+        verified: (user.email_verified === "true"),
+        provides: "cognito"
+      }
+    ],
+    name: `${user.given_name} ${user.family_name}`,
+    profile: {
+      firstName: user.given_name,
+      lastName: user.family_name
+    },
+    _id: activeUser.Username
+  };
+
+  return user;
 }
 
 export default getUserFromAuthToken;
