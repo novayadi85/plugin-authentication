@@ -1,107 +1,71 @@
-
-import jwksRsa from "jwks-rsa";
-import jsonwebtoken from "jsonwebtoken";
+import { promisify } from 'util';
+import Axios from 'axios';
+import jsonwebtoken from 'jsonwebtoken';
 import config from "../config.js";
 
 const {
-  AWS_POOL_IDENTITY_POOL,
-  AWS_CLIENT_ID,
   AWS_POOL_ID,
   AWS_REGION
 } = config;
 
+import jwkToPem from 'jwk-to-pem';
 
-const decodeTokenHeader = (token) => {
-  const [headerEncoded] = token.split(".");
-  // const buff = new Buffer(headerEncoded, 'base64');
-  let buff; const encoding = "base64";
-  if (Buffer.from && Buffer.from !== Uint8Array.from) {
-    buff = Buffer.from(headerEncoded, encoding);
-  } else {
-    if (typeof headerEncoded === "number") {
-      throw new Error('The "size" argument must be not of type number.');
-    }
-    buff = Buffer.from(headerEncoded, encoding);
+const cognitoPoolId = AWS_POOL_ID || '';
+if (!cognitoPoolId) {
+  throw new Error('env var required for cognito pool');
+}
+const cognitoIssuer = `https://cognito-idp.${AWS_REGION}.amazonaws.com/${cognitoPoolId}`;
+let cacheKeys;
+const getPublicKeys = async () => {
+  if (!cacheKeys) {
+    const url = `${cognitoIssuer}/.well-known/jwks.json`;
+    const publicKeys = await Axios.default.get(url);
+    cacheKeys = publicKeys.data.keys.reduce((agg, current) => {
+      const pem = jwkToPem(current);
+      agg[current.kid] = { instance: current, pem };
+      return agg;
+    }, {});
+    return cacheKeys;
   }
-  const text = buff.toString("ascii");
-  return JSON.parse(text);
+  else {
+    return cacheKeys;
+  }
 };
+const verifyPromised = promisify(jsonwebtoken.verify.bind(jsonwebtoken));
 
-const verifyJsonWebTokenSignature = (token, jsonWebKey, clbk) => {
-  jsonwebtoken.verify(token, jsonWebKey, { algorithms: ["RS256"] }, (err, decodedToken) => clbk(err, decodedToken));
-};
-
-const verifyCognitoToken = async (token, decoded) => {
+export default async (request) => {
+  let result;
   try {
-    const decode = new Promise((resolve, reject) => {
-      const header = decodeTokenHeader(token);
-      const client = jwksRsa({
-        jwksUri: `https://cognito-idp.${decoded.AWS_REGION}.amazonaws.com/${decoded.AWS_POOL_ID}/.well-known/jwks.json`
-      });
-
-      client.getSigningKey(header.kid, async (error, key) => {
-        if (error) {
-          resolve({
-            error: true,
-            message: error.message
-          });
-        }
-        if (typeof key === "undefined" || key === undefined) {
-          reject(new Error("fail"));
-        } else {
-          const signingKey = key.publicKey || key.rsaPublicKey;
-          verifyJsonWebTokenSignature(token, signingKey, (err, decodedToken) => {
-            if (err) {
-              resolve({
-                error: true,
-                message: err.message
-              });
-            } else {
-              resolve({ error: false, payloads: decodedToken });
-            }
-          });
-        }
-      });
-    });
-
-    return await decode.then(async (value) =>
-    // console.log(value)
-      value);
-  } catch (error) {
-    return { error: true };
-  }
-};
-
-
-const claimRace = async (token) => {
-  const configs = [
-    {
-      AWS_POOL_ID,
-      AWS_CLIENT_ID,
-      AWS_POOL_IDENTITY_POOL,
-      AWS_REGION
+    console.log(`user claim verfiy invoked for ${JSON.stringify(request)}`);
+    const token = request.token;
+    const tokenSections = (token || '').split('.');
+    if (tokenSections.length < 2) {
+      throw new Error('requested token is invalid');
     }
-  ];
-
-  return Promise.race(configs.map((item) => verifyCognitoToken(token, item))).then((value) =>
-    value);
-};
-
-export default async (token) => {
-  let tokenize = {};
-  let isAuthenticated = false;
-  if (token) {
-    tokenize = await claimRace(token);
-    const { error } = tokenize;
-    if (error !== true) {
-      // console.log(error)
-      isAuthenticated = true;
+    const headerJSON = Buffer.from(tokenSections[0], 'base64').toString('utf8');
+    const header = JSON.parse(headerJSON);
+    const keys = await getPublicKeys();
+    const key = keys[header.kid];
+    if (key === undefined) {
+      throw new Error('claim made for unknown kid');
     }
+    const claim = await verifyPromised(token, key.pem);
+    const currentSeconds = Math.floor((new Date()).valueOf() / 1000);
+    if (currentSeconds > claim.exp || currentSeconds < claim.auth_time) {
+      throw new Error('claim is expired or invalid');
+    }
+    if (claim.iss !== cognitoIssuer) {
+      throw new Error('claim issuer is invalid');
+    }
+    if (claim.token_use !== 'access') {
+      throw new Error('claim use is not access');
+    }
+    console.log(`claim confirmed for ${claim.username}`);
+    result = { ...claim, isValid: true };
   }
-
-  return {
-    ...tokenize,
-    ok: isAuthenticated
-  };
+  catch (error) {
+    result = { userName: '', clientId: '', error, isValid: false };
+  }
+  return result;
 };
 

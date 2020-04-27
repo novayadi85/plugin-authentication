@@ -3,7 +3,7 @@
 import Logger from "@reactioncommerce/logger";
 import AWS from "aws-sdk";
 import config from "../config.js";
-import cognitoAuthToken from "./cognitoAuthToken.js";
+import expandAuthToken from "./expandAuthToken.js";
 
 const {
   AWS_POOL_IDENTITY_POOL,
@@ -44,17 +44,35 @@ async function getCurrentUser(token) {
   return cognitoidentityserviceprovider.getUser(params).promise();
 }
 
+const attributesToObject = (attributes) => {
+  const obj = {};
+  if (attributes) {
+    attributes.map(attribute => {
+      if (attribute.Value === 'true') {
+        obj[attribute.Name] = true;
+      } else if (attribute.Value === 'false') {
+        obj[attribute.Name] = false;
+      } else {
+        obj[attribute.Name] = attribute.Value;
+      }
+    });
+  }
+  return obj;
+}
+
 async function getUserFromAuthToken(loginToken) {
   const token = loginToken.replace(/bearer\s/gi, "");
 
-  const tokenObj = await cognitoAuthToken(token);
+  const tokenObj = await expandAuthToken(token);
 
   if (!tokenObj) {
     Logger.debug("No token object");
     throw new Error("No token object");
   }
 
-  const { ok: active, token_use: tokenType } = tokenObj;
+  console.log(tokenObj);
+
+  const { isValid: active, token_use: tokenType } = tokenObj;
 
   if (!active) {
     Logger.debug("Bearer token is expired");
@@ -77,15 +95,8 @@ async function getUserFromAuthToken(loginToken) {
 
 
   const { UserAttributes } = activeUser;
-  let user = {};
-  UserAttributes.map((item) => {
-    const { Name, Value } = item;
-    user = {
-      ...user,
-      [Name]: Value
-    };
-    return user;
-  });
+
+  let user = attributesToObject(UserAttributes);
 
   user = {
     ...user,

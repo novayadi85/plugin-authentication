@@ -8,14 +8,6 @@ export default envalid.cleanEnv(process.env, {
     desc: "AWS Pool Identity",
     devDefault: ""
   }),
-  AWS_ACCESS_KEY_ID: str({
-    desc: "AWS ACESS key id",
-    devDefault: ""
-  }),
-  AWS_SECRET_KEY: str({
-    desc: "AWS Secret key",
-    devDefault: ""
-  }),
   AWS_REGION: str({
     desc: "Region Id",
     devDefault: ""
