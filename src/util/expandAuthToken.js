@@ -19,7 +19,7 @@ export default async function cognitoAuthToken(token) {
   */
 
   const payloads = await claimsCognito({token});
-  if (!payloads) throw new Error("Error introspecting token");
+  if (!payloads.isValid) throw new Error("Error introspecting token");
 
   return payloads;
 }
