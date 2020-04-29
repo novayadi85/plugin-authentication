@@ -31,10 +31,11 @@ export default function tokenMiddleware(context) {
     } catch (error) {
       Logger.error(error);
       // Be sure our response is JSON (can't use res.sendStatus)
-      res.status(401).json({
-        code: 401,
-        message: "Unauthorized"
-      });
+      //res.status(401).json({
+       // code: 401,
+       // message: "Unauthorized"
+      //});
+      next();
     }
   };
 }
