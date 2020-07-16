@@ -98,11 +98,36 @@ async function getUserFromAuthToken(loginToken , context) {
 
   let userId 
   if(user.email_verified === true){
-    const account = await context.collections.users.findOne({ 'emails.address' :  { $in: [ user.email ] } } );
+    let account = await context.collections.Accounts.findOne({ 'emails.address' :  { $in: [ user.email ] } } );
     
-    if(!account){
+    if(!account &&  tokenObj['cognito:groups'].filter(group => 'Admin')){
       //create new account 
-      console.log('create account')
+      Logger.debug(`Creating missing account for user ID ${user.sub}`);
+      const group = await context.collections.Groups.findOne({ slug: "shop manager" }, { projection: { _id: 1 } });
+      let groupId = (group && group._id) || null;
+
+      if(group) {
+          account = await context.mutations.createAccount(context.getInternalContext(), {
+          emails: [
+            {
+              address: user.email,
+              verified: (user.email_verified === true),
+              provides: "cognito"
+            }
+          ],
+          name: `${user.given_name} ${user.family_name}`,
+          profile: {
+            firstName: user.given_name,
+            lastName: user.family_name
+          },
+          userId: user.sub
+        });
+
+        await context.mutations.addAccountToGroup(context.getInternalContext(), {
+          accountId: user.sub,
+          groupId: groupId
+        });
+      }
     }
     userId = account._id
   }
