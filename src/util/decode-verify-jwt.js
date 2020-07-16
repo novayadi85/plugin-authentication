@@ -36,7 +36,7 @@ const verifyPromised = promisify(jsonwebtoken.verify.bind(jsonwebtoken));
 export default async (request) => {
   let result;
   try {
-    console.log(`user claim verfiy invoked for ${JSON.stringify(request)}`);
+    //console.log(`user claim verfiy invoked for ${JSON.stringify(request)}`);
     const token = request.token;
     const tokenSections = (token || '').split('.');
     if (tokenSections.length < 2) {
@@ -50,7 +50,9 @@ export default async (request) => {
       throw new Error('claim made for unknown kid');
     }
     const claim = await verifyPromised(token, key.pem);
+
     const currentSeconds = Math.floor((new Date()).valueOf() / 1000);
+    
     if (currentSeconds > claim.exp || currentSeconds < claim.auth_time) {
       throw new Error('claim is expired or invalid');
     }
@@ -58,9 +60,9 @@ export default async (request) => {
       throw new Error('claim issuer is invalid');
     }
     if (claim.token_use !== 'access') {
-      throw new Error('claim use is not access');
+      throw new Error('claim use is allow');
     }
-    console.log(`claim confirmed for ${claim.username}`);
+    console.log(`claim confirmed for ${claim.token_use}`);
     result = { ...claim, isValid: true };
   }
   catch (error) {
