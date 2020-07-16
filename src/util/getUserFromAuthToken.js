@@ -60,7 +60,7 @@ const attributesToObject = (attributes) => {
   return obj;
 }
 
-async function getUserFromAuthToken(loginToken) {
+async function getUserFromAuthToken(loginToken , context) {
   const token = loginToken.replace(/bearer\s/gi, "");
 
   const tokenObj = await expandAuthToken(token);
@@ -69,8 +69,6 @@ async function getUserFromAuthToken(loginToken) {
     Logger.debug("No token object");
     throw new Error("No token object");
   }
-
-  console.log(tokenObj);
 
   const { isValid: active, token_use: tokenType } = tokenObj;
 
@@ -98,6 +96,16 @@ async function getUserFromAuthToken(loginToken) {
 
   let user = attributesToObject(UserAttributes);
 
+  let userId 
+  if(user.email_verified === true){
+    const account = await context.collections.users.findOne({ 'emails.address' :  { $in: [ user.email ] } } );
+    
+    if(!account){
+      //create new account 
+      console.log('create account')
+    }
+    userId = account._id
+  }
   user = {
     ...user,
     emails: [
@@ -112,9 +120,10 @@ async function getUserFromAuthToken(loginToken) {
       firstName: user.given_name,
       lastName: user.family_name
     },
-    _id: activeUser.Username
+    _id: userId ? userId : activeUser.Username
   };
 
+  
   return user;
 }
 
