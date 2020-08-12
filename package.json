@@ -1,5 +1,5 @@
 {
-  "name": "@reactioncommerce/plugin-authentication",
+  "name": "@reactioncommerce/api-plugin-authentication",
   "description": "Authentication plugin for the Reaction API",
   "version": "0.0.0-development",
   "main": "index.js",
